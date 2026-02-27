@@ -35,6 +35,9 @@ interface ConversationState {
   // Mode
   mode: Mode;
 
+  // Selected model (null = use default)
+  selectedModel: string | null;
+
   // Uploaded images (img2img / translate)
   uploadedImages: UploadedImage[];
 
@@ -44,6 +47,7 @@ interface ConversationState {
 
   // Actions
   setMode: (mode: Mode) => void;
+  setSelectedModel: (name: string | null) => void;
   createConversation: () => Promise<string>;
   sendPrompt: (prompt: string, params?: GenerationParams) => Promise<void>;
   addMessage: (message: MessageDetail) => void;
@@ -76,11 +80,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   generatingTaskId: null,
   generatingError: null,
   mode: "text2img",
+  selectedModel: null,
   uploadedImages: [],
   sourceLang: "zh",
   targetLang: "en",
 
-  setMode: (mode) => set({ mode }),
+  setMode: (mode) => set({ mode, selectedModel: null }),
+  setSelectedModel: (name) => set({ selectedModel: name }),
 
   createConversation: async () => {
     const id = await invokeCommand<string>("create_conversation", {
@@ -162,6 +168,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         await invokeCommand("generate_image", {
           conversationId,
           prompt,
+          modelName: state.selectedModel ?? null,
           params: params ?? null,
           onEvent: channel,
         });
@@ -201,6 +208,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           conversationId,
           imagePaths,
           prompt,
+          modelName: state.selectedModel ?? null,
           params: params ?? null,
         });
 
@@ -290,6 +298,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           imagePath,
           sourceLang,
           targetLang,
+          modelName: state.selectedModel ?? null,
           onEvent: channel,
         });
       }

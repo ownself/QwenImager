@@ -1,15 +1,16 @@
 import { create } from "zustand";
-import { invokeCommand, type ConfigStatus } from "@/lib/tauri";
+import { invokeCommand, type ConfigStatus, type ModelInfo } from "@/lib/tauri";
 
 interface ConfigState {
   loaded: boolean;
-  availableModels: string[];
+  availableModels: ModelInfo[];
   errorMessage: string | null;
   loading: boolean;
   loadConfig: () => Promise<void>;
+  getModelsByType: (type: "text2img" | "img2img" | "translate") => ModelInfo[];
 }
 
-export const useConfigStore = create<ConfigState>((set) => ({
+export const useConfigStore = create<ConfigState>((set, get) => ({
   loaded: false,
   availableModels: [],
   errorMessage: null,
@@ -34,5 +35,9 @@ export const useConfigStore = create<ConfigState>((set) => ({
         loading: false,
       });
     }
+  },
+
+  getModelsByType: (type) => {
+    return get().availableModels.filter((m) => m.serviceType === type);
   },
 }));

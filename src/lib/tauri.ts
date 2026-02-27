@@ -58,9 +58,15 @@ export function createChannel<T>(onMessage: (event: T) => void): Channel<T> {
 
 // ── Configuration types ──
 
+export interface ModelInfo {
+  name: string;
+  provider: string;
+  serviceType: "text2img" | "img2img" | "translate";
+}
+
 export interface ConfigStatus {
   loaded: boolean;
-  available_models: string[];
+  available_models: ModelInfo[];
   error_message?: string;
 }
 

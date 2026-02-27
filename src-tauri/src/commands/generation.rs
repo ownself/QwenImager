@@ -1,45 +1,127 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use serde_json::{json, Value};
 use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::error::AppError;
-use crate::models::api::{
-    GenerationEvent, GenerationParams, ImageEditContent, ImageEditInput, ImageEditMessage,
-    ImageEditRequest, TextToImageInput, TextToImageRequest,
-};
+use crate::models::api::{GenerationEvent, GenerationParams};
+use crate::models::config::{ApiMode, AsyncPollConfig, ModelConfig, ServiceType};
 use crate::services::config_loader;
+use crate::services::template_engine::{
+    default_img2img_template, default_text2img_template, extract_strings, infer_service_type,
+    render_template,
+};
 use crate::AppState;
+
+// ── Helpers ──
+
+/// Default `AsyncPollConfig` for DashScope async endpoints.
+fn default_dashscope_poll_config() -> AsyncPollConfig {
+    AsyncPollConfig {
+        submit_headers: {
+            let mut h = HashMap::new();
+            h.insert("X-DashScope-Async".to_string(), "enable".to_string());
+            h
+        },
+        poll_url: "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}".to_string(),
+        poll_interval_secs: 3,
+        timeout_secs: 180,
+    }
+}
+
+/// Resolve model config for a given service type.
+///
+/// If `model_name` is provided, looks up by exact name; otherwise falls back
+/// to service-type heuristic search.
+///
+/// Returns `(api_key, resolved_model_name, model_config)`.
+fn resolve_model(
+    model_name: &Option<String>,
+    target_type: ServiceType,
+) -> Result<(String, String, ModelConfig), AppError> {
+    let (config, _models) = config_loader::load_config_inner()?;
+
+    if let Some(name) = model_name {
+        let (api_key, mc) = config_loader::find_model_config(&config, name)?;
+        Ok((api_key.to_string(), name.clone(), mc.clone()))
+    } else {
+        let (api_key, name, mc) =
+            config_loader::find_model_by_service_type(&config, target_type)?;
+        Ok((api_key.to_string(), name, mc.clone()))
+    }
+}
+
+/// Default response image path for a service type.
+fn default_response_path(mc: &ModelConfig, model_name: &str) -> String {
+    if let Some(ref path) = mc.response_image_path {
+        return path.clone();
+    }
+    let st = mc.service_type.unwrap_or_else(|| infer_service_type(model_name));
+    match st {
+        ServiceType::Img2img => "output.choices[*].message.content[*].image".to_string(),
+        _ => "output.results[*].url".to_string(),
+    }
+}
+
+/// Resolve effective API mode for a model config.
+///
+/// For backward compatibility: if `mode` is `Sync` but the model's
+/// inferred service_type is text2img or translate (which were historically
+/// async_poll for DashScope), and there's no explicit `service_type` or
+/// `mode` set, upgrade to async_poll with default DashScope config.
+fn resolve_mode_and_poll(
+    mc: &ModelConfig,
+    model_name: &str,
+) -> (ApiMode, Option<AsyncPollConfig>) {
+    match mc.mode {
+        ApiMode::AsyncPoll => {
+            let poll = mc
+                .async_poll
+                .clone()
+                .unwrap_or_else(default_dashscope_poll_config);
+            (ApiMode::AsyncPoll, Some(poll))
+        }
+        ApiMode::Sync => {
+            // Backward compat: old configs have mode=sync (default), but text2img
+            // and translate were historically async on DashScope.
+            // If service_type is NOT explicitly set AND mode is default (sync),
+            // infer the correct mode from the model name.
+            if mc.service_type.is_none() && mc.async_poll.is_none() {
+                let inferred = mc
+                    .service_type
+                    .unwrap_or_else(|| infer_service_type(model_name));
+                match inferred {
+                    ServiceType::Text2img | ServiceType::Translate => {
+                        // These were historically async_poll on DashScope
+                        (ApiMode::AsyncPoll, Some(default_dashscope_poll_config()))
+                    }
+                    ServiceType::Img2img => (ApiMode::Sync, None),
+                }
+            } else {
+                (ApiMode::Sync, None)
+            }
+        }
+    }
+}
+
+// ── Commands ──
 
 /// Text-to-image generation command.
 ///
-/// Submits an async task to the DashScope API, polls for completion,
-/// and sends progress events via a Tauri Channel.
+/// Builds a config-driven request, sends it via the appropriate mode
+/// (sync or async_poll), and sends progress events via a Tauri Channel.
 #[tauri::command]
 pub async fn generate_image(
     state: State<'_, Arc<AppState>>,
     conversation_id: String,
     prompt: String,
+    model_name: Option<String>,
     params: Option<GenerationParams>,
     on_event: Channel<GenerationEvent>,
 ) -> Result<(), AppError> {
-    // Load config to get API key and model URL
-    let (config, _models) = config_loader::load_config_inner()?;
-    let provider = config.providers.get("qwen").ok_or_else(|| {
-        AppError::Config("Qwen provider not configured".to_string())
-    })?;
-    let api_key = &provider.api_key;
-
-    // Find text2img model URL (try common names)
-    let model_entry = provider
-        .models
-        .iter()
-        .find(|(k, _)| k.contains("image") && !k.contains("edit") && !k.contains("mt"))
-        .or_else(|| provider.models.iter().next())
-        .ok_or_else(|| AppError::Config("No text2img model configured".to_string()))?;
-
-    let model_name = model_entry.0.clone();
-    let model_url = &model_entry.1.url;
+    let (api_key, resolved_name, mc) = resolve_model(&model_name, ServiceType::Text2img)?;
 
     // Create user message in DB
     let _user_msg = state.db.add_message(
@@ -50,117 +132,149 @@ pub async fn generate_image(
         None,
     )?;
 
-    // Build API request
-    let mut gen_params = params.unwrap_or_default();
-    if gen_params.size.is_none() {
-        gen_params.size = Some("1024*1024".to_string());
-    }
-    if gen_params.prompt_extend.is_none() {
-        gen_params.prompt_extend = Some(true);
-    }
-    if gen_params.watermark.is_none() {
-        gen_params.watermark = Some(false);
-    }
+    // Build template variables
+    let gen_params = params.unwrap_or_default();
+    let size = gen_params
+        .size
+        .clone()
+        .unwrap_or_else(|| "1024*1024".to_string());
 
-    let request = TextToImageRequest {
-        model: model_name.clone(),
-        input: TextToImageInput {
-            prompt: prompt.clone(),
-        },
-        parameters: Some(gen_params),
-    };
+    let mut vars: HashMap<&str, Value> = HashMap::new();
+    vars.insert("model", Value::String(resolved_name.clone()));
+    vars.insert("prompt", Value::String(prompt.clone()));
+    vars.insert("size", Value::String(size));
 
-    // Submit async task
-    let submit_response = state
-        .qwen_client
-        .submit_async_task(model_url, api_key, &request)
-        .await?;
+    // Use configured template or default
+    let template = mc
+        .request_template
+        .clone()
+        .unwrap_or_else(default_text2img_template);
+    let body = render_template(&template, &vars)
+        .ok_or_else(|| AppError::Api("Failed to render request template".to_string()))?;
 
-    let task_id = submit_response.output.task_id;
+    let extra_headers = mc.headers.clone().unwrap_or_default();
+    let response_path = default_response_path(&mc, &resolved_name);
 
-    // Send "submitted" event
-    let _ = on_event.send(GenerationEvent::Submitted {
-        task_id: task_id.clone(),
-    });
+    let (mode, poll_config) = resolve_mode_and_poll(&mc, &resolved_name);
 
-    // Poll loop: every 3s, max 180s (60 iterations)
-    let max_polls = 60;
-    for _ in 0..max_polls {
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    match mode {
+        ApiMode::AsyncPoll => {
+            let poll_cfg = poll_config.unwrap_or_else(default_dashscope_poll_config);
 
-        let poll_response = state.qwen_client.poll_task(&task_id, api_key).await?;
-        let status = &poll_response.output.task_status;
+            let result = state
+                .qwen_client
+                .execute_async_poll(
+                    &mc.url,
+                    &api_key,
+                    &body,
+                    &poll_cfg,
+                    &extra_headers,
+                    |task_id, status| {
+                        match status {
+                            "SUBMITTED" => {
+                                let _ = on_event.send(GenerationEvent::Submitted {
+                                    task_id: task_id.to_string(),
+                                });
+                            }
+                            _ => {
+                                let _ = on_event.send(GenerationEvent::Polling {
+                                    task_id: task_id.to_string(),
+                                    status: status.to_string(),
+                                });
+                            }
+                        }
+                    },
+                )
+                .await;
 
-        match status.as_str() {
-            "SUCCEEDED" => {
-                // Extract image URLs from results
-                let image_urls: Vec<String> = poll_response
-                    .output
-                    .results
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|r| r.url.clone())
-                    .collect();
+            let final_resp = match result {
+                Ok(resp) => resp,
+                Err(e) => {
+                    let _ = on_event.send(GenerationEvent::Failed {
+                        task_id: String::new(),
+                        error: e.to_string(),
+                    });
+                    return Err(e);
+                }
+            };
 
-                // Create assistant message and save generation results
-                let assistant_msg = state.db.add_message(
-                    &conversation_id,
-                    "assistant",
+            let task_id = final_resp
+                .get("output")
+                .and_then(|o| o.get("task_id"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let image_urls = extract_strings(&final_resp, &response_path);
+
+            // Create assistant message and save generation results
+            let assistant_msg = state.db.add_message(
+                &conversation_id,
+                "assistant",
+                None,
+                "text2img",
+                None,
+            )?;
+
+            for url in &image_urls {
+                state.db.add_generation_result(
+                    &assistant_msg.id,
+                    Some(url),
                     None,
-                    "text2img",
+                    "image",
+                    &resolved_name,
                     None,
                 )?;
-
-                for url in &image_urls {
-                    state.db.add_generation_result(
-                        &assistant_msg.id,
-                        Some(url),
-                        None,
-                        "image",
-                        &model_name,
-                        None,
-                    )?;
-                }
-
-                let _ = on_event.send(GenerationEvent::Succeeded {
-                    task_id: task_id.clone(),
-                    message_id: assistant_msg.id,
-                    image_urls,
-                });
-
-                return Ok(());
             }
-            "FAILED" | "CANCELED" => {
-                let error_msg = poll_response
-                    .output
-                    .message
-                    .unwrap_or_else(|| format!("Task {}", status));
 
-                let _ = on_event.send(GenerationEvent::Failed {
-                    task_id: task_id.clone(),
-                    error: error_msg.clone(),
-                });
+            let _ = on_event.send(GenerationEvent::Succeeded {
+                task_id,
+                message_id: assistant_msg.id,
+                image_urls,
+            });
+        }
+        ApiMode::Sync => {
+            let resp = state
+                .qwen_client
+                .execute_sync(&mc.url, &api_key, &body, &extra_headers)
+                .await?;
 
-                return Err(AppError::Api(error_msg));
+            let image_urls = extract_strings(&resp, &response_path);
+
+            if image_urls.is_empty() {
+                return Err(AppError::Api(
+                    "No images returned from API response".to_string(),
+                ));
             }
-            _ => {
-                // PENDING or RUNNING — send polling event and continue
-                let _ = on_event.send(GenerationEvent::Polling {
-                    task_id: task_id.clone(),
-                    status: status.clone(),
-                });
+
+            let assistant_msg = state.db.add_message(
+                &conversation_id,
+                "assistant",
+                None,
+                "text2img",
+                None,
+            )?;
+
+            for url in &image_urls {
+                state.db.add_generation_result(
+                    &assistant_msg.id,
+                    Some(url),
+                    None,
+                    "image",
+                    &resolved_name,
+                    None,
+                )?;
             }
+
+            let _ = on_event.send(GenerationEvent::Succeeded {
+                task_id: "sync".to_string(),
+                message_id: assistant_msg.id,
+                image_urls,
+            });
         }
     }
 
-    // Timeout after max polls
-    let _ = on_event.send(GenerationEvent::Failed {
-        task_id: task_id.clone(),
-        error: "Generation timed out after 180 seconds".to_string(),
-    });
-    Err(AppError::Timeout(
-        "Image generation timed out after 180 seconds".to_string(),
-    ))
+    Ok(())
 }
 
 /// Save an image to a user-specified location.
@@ -216,10 +330,7 @@ pub async fn save_image(
 /// Receives raw image bytes from the frontend, writes to
 /// `{temp_dir}/qwenimager-clipboard/{uuid}.{ext}`, returns the path.
 #[tauri::command]
-pub fn save_clipboard_image(
-    image_data: Vec<u8>,
-    mime_type: String,
-) -> Result<String, AppError> {
+pub fn save_clipboard_image(image_data: Vec<u8>, mime_type: String) -> Result<String, AppError> {
     let ext = match mime_type.as_str() {
         "image/png" => "png",
         "image/jpeg" => "jpg",
@@ -239,42 +350,31 @@ pub fn save_clipboard_image(
     Ok(file_path.to_string_lossy().to_string())
 }
 
-/// Image-to-image editing command (synchronous API).
+/// Image-to-image editing command.
 ///
-/// Builds a messages-format request with interleaved images and text,
-/// sends a sync request, and saves the results.
+/// Builds a config-driven request with interleaved images and text,
+/// sends via the appropriate mode, and saves the results.
 #[tauri::command]
 pub async fn edit_image(
     state: State<'_, Arc<AppState>>,
     conversation_id: String,
     image_paths: Vec<String>,
     prompt: String,
-    params: Option<GenerationParams>,
-) -> Result<serde_json::Value, AppError> {
-    // Load config
-    let (config, _models) = config_loader::load_config_inner()?;
-    let provider = config.providers.get("qwen").ok_or_else(|| {
-        AppError::Config("Qwen provider not configured".to_string())
-    })?;
-    let api_key = &provider.api_key;
-
-    // Find img2img model URL (contains "edit")
-    let model_entry = provider
-        .models
-        .iter()
-        .find(|(k, _)| k.contains("edit"))
-        .or_else(|| provider.models.iter().next())
-        .ok_or_else(|| AppError::Config("No img2img model configured".to_string()))?;
-
-    let model_name = model_entry.0.clone();
-    let model_url = &model_entry.1.url;
+    model_name: Option<String>,
+    _params: Option<GenerationParams>,
+) -> Result<Value, AppError> {
+    let (api_key, resolved_name, mc) = resolve_model(&model_name, ServiceType::Img2img)?;
 
     // Validate inputs
     if image_paths.is_empty() {
-        return Err(AppError::Validation("At least one image is required".to_string()));
+        return Err(AppError::Validation(
+            "At least one image is required".to_string(),
+        ));
     }
     if prompt.trim().is_empty() {
-        return Err(AppError::Validation("Prompt text is required".to_string()));
+        return Err(AppError::Validation(
+            "Prompt text is required".to_string(),
+        ));
     }
 
     // Create user message in DB
@@ -293,7 +393,6 @@ pub async fn edit_image(
         })?;
         let file_size = metadata.len() as i64;
 
-        // Detect MIME type from extension
         let mime = match std::path::Path::new(path)
             .extension()
             .and_then(|e| e.to_str())
@@ -307,7 +406,6 @@ pub async fn edit_image(
             _ => "image/png",
         };
 
-        // Determine source based on path
         let source = if path.contains("qwenimager-clipboard") {
             "clipboard"
         } else {
@@ -325,75 +423,70 @@ pub async fn edit_image(
     }
 
     // Build content array: images first (in order), then text
-    let mut content: Vec<ImageEditContent> = Vec::new();
+    let mut content_arr: Vec<Value> = Vec::new();
     for path in &image_paths {
-        // For the API: HTTP URLs pass through, local files are Base64-encoded
         let image_url = if path.starts_with("http") {
             path.clone()
         } else {
             crate::services::image_utils::encode_image_to_data_uri(path)?
         };
-        content.push(ImageEditContent::Image { image: image_url });
+        content_arr.push(json!({ "image": image_url }));
     }
-    content.push(ImageEditContent::Text { text: prompt.clone() });
+    content_arr.push(json!({ "text": prompt.clone() }));
 
-    // Build generation params
-    let mut gen_params = params.unwrap_or_default();
-    if gen_params.prompt_extend.is_none() {
-        gen_params.prompt_extend = Some(true);
-    }
-    if gen_params.watermark.is_none() {
-        gen_params.watermark = Some(false);
-    }
+    // Build template variables
+    let mut vars: HashMap<&str, Value> = HashMap::new();
+    vars.insert("model", Value::String(resolved_name.clone()));
+    // {content} is a special JSON array replacement (not a string)
+    vars.insert("content", Value::Array(content_arr));
 
-    let request = ImageEditRequest {
-        model: model_name.clone(),
-        input: ImageEditInput {
-            messages: vec![ImageEditMessage {
-                role: "user".to_string(),
-                content,
-            }],
-        },
-        parameters: Some(gen_params),
+    // Use configured template or default
+    let template = mc
+        .request_template
+        .clone()
+        .unwrap_or_else(default_img2img_template);
+    let body = render_template(&template, &vars)
+        .ok_or_else(|| AppError::Api("Failed to render request template".to_string()))?;
+
+    let extra_headers = mc.headers.clone().unwrap_or_default();
+    let response_path = default_response_path(&mc, &resolved_name);
+
+    let (mode, poll_config) = resolve_mode_and_poll(&mc, &resolved_name);
+
+    let resp = match mode {
+        ApiMode::AsyncPoll => {
+            let poll_cfg = poll_config.unwrap_or_else(default_dashscope_poll_config);
+            state
+                .qwen_client
+                .execute_async_poll(
+                    &mc.url,
+                    &api_key,
+                    &body,
+                    &poll_cfg,
+                    &extra_headers,
+                    |_task_id, _status| {},
+                )
+                .await?
+        }
+        ApiMode::Sync => {
+            state
+                .qwen_client
+                .execute_sync(&mc.url, &api_key, &body, &extra_headers)
+                .await?
+        }
     };
 
-    // Send synchronous request (no X-DashScope-Async header)
-    let response = state
-        .qwen_client
-        .send_sync_request(model_url, api_key, &request)
-        .await?;
-
-    // Extract image URLs from the response
-    let mut image_urls: Vec<String> = Vec::new();
-
-    // Try choices format first (multimodal-generation response)
-    if let Some(choices) = &response.output.choices {
-        for choice in choices {
-            if let Some(msg) = &choice.message {
-                if let Some(contents) = &msg.content {
-                    for c in contents {
-                        if let crate::models::api::SyncChoiceContent::Image { image } = c {
-                            image_urls.push(image.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Fallback to results format
-    if image_urls.is_empty() {
-        if let Some(results) = &response.output.results {
-            for r in results {
-                if let Some(url) = &r.url {
-                    image_urls.push(url.clone());
-                }
-            }
-        }
+    // Extract image URLs — try primary path first, then fallback for img2img
+    let mut image_urls = extract_strings(&resp, &response_path);
+    if image_urls.is_empty() && response_path.contains("choices") {
+        // Fallback to results format
+        image_urls = extract_strings(&resp, "output.results[*].url");
     }
 
     if image_urls.is_empty() {
-        return Err(AppError::Api("No images returned from edit API".to_string()));
+        return Err(AppError::Api(
+            "No images returned from edit API".to_string(),
+        ));
     }
 
     // Create assistant message and save generation results
@@ -411,13 +504,12 @@ pub async fn edit_image(
             Some(url),
             None,
             "image",
-            &model_name,
+            &resolved_name,
             None,
         )?;
     }
 
-    // Return EditResult format
-    Ok(serde_json::json!({
+    Ok(json!({
         "messageId": assistant_msg.id,
         "imageUrls": image_urls,
     }))

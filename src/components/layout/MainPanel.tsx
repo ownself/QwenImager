@@ -3,6 +3,7 @@ import { useGeneration } from "@/hooks/useGeneration";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { PromptInput } from "@/components/input/PromptInput";
 import { ModeSelector } from "@/components/input/ModeSelector";
+import { ModelSelector } from "@/components/input/ModelSelector";
 import { ImageUpload } from "@/components/input/ImageUpload";
 import { LanguageSelector } from "@/components/input/LanguageSelector";
 import { ErrorDisplay } from "@/components/common/ErrorDisplay";
@@ -92,6 +93,7 @@ export function MainPanel() {
               onModeChange={setMode}
               disabled={isGenerating}
             />
+            <ModelSelector serviceType={mode} />
           </div>
 
           {/* Image upload area for img2img mode */}
