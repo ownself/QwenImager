@@ -145,7 +145,8 @@ QwenImager 从 `~/.qwenimage/setting.json` 读取配置。使用应用前，您�
 | `service_type` | string | No | Inferred from model name | One of: `text2img`, `img2img`, `translate` |
 | `mode` | string | No | `sync` | API mode: `sync` or `async_poll` |
 | `request_template` | object | No | Built-in template | Custom JSON request body template |
-| `response_image_path` | string | No | Built-in path | JSONPath to extract image URLs from response |
+| `response_image_path` | string | No | Built-in path | JSONPath to extract image data from response |
+| `response_format` | string | No | `url` | Response format: `url` (image URLs) or `base64` (inline base64 data) |
 | `headers` | object | No | `{}` | Extra headers to include in requests |
 | `async_poll` | object | No* | - | Required when `mode` is `async_poll` |
 
@@ -188,6 +189,151 @@ QwenImager 设计用于配合阿里云通义万象图像生成 API。以下是�
 > **Note**: Model availability depends on your DashScope subscription. Please check [Alibaba Cloud DashScope](https://dashscope.aliyun.com/) for the latest model offerings.
 >
 > **注意**：模型可用性取决于您的 DashScope 订阅。请查看[阿里云 DashScope](https://dashscope.aliyun.com/) 获取最新模型信息。
+
+---
+
+## Third-Party API Support | 第三方 API 支持
+
+QwenImager supports any OpenAI-compatible or custom image generation API through its flexible configuration system.
+
+QwenImager 通过灵活的配置系统支持任何 OpenAI 兼容或自定义的图像生成 API。
+
+### Google Gemini (via LiteLLM)
+
+When using Gemini through LiteLLM proxy, images are returned as data URIs in the `message.images` array:
+
+通过 LiteLLM 代理使用 Gemini 时，图像以 data URI 格式返回在 `message.images` 数组中：
+
+#### Text-to-Image | 文生图
+
+```json
+{
+  "providers": {
+    "gemini": {
+      "apiKey": "your-api-key",
+      "models": {
+        "gemini-2.0-flash-preview-image-generation": {
+          "url": "http://your-litellm-server:4000/v1/chat/completions",
+          "service_type": "text2img",
+          "mode": "sync",
+          "response_format": "url",
+          "response_image_path": "choices[*].message.images[*].image_url.url",
+          "request_template": {
+            "model": "{model}",
+            "messages": [
+              {
+                "role": "user",
+                "content": "{prompt}"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+#### Image-to-Image | 图生图
+
+For image editing, use `{openai_content}` placeholder which formats images in OpenAI vision API style:
+
+对于图像编辑，使用 `{openai_content}` 占位符，它会将图像格式化为 OpenAI vision API 格式：
+
+```json
+{
+  "providers": {
+    "gemini": {
+      "apiKey": "your-api-key",
+      "models": {
+        "gemini-2.0-flash-preview-image-generation-img2img": {
+          "url": "http://your-litellm-server:4000/v1/chat/completions",
+          "service_type": "img2img",
+          "mode": "sync",
+          "response_format": "url",
+          "response_image_path": "choices[*].message.images[*].image_url.url",
+          "request_template": {
+            "model": "gemini-2.0-flash-preview-image-generation",
+            "messages": [
+              {
+                "role": "user",
+                "content": "{openai_content}"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+**Available content placeholders for img2img | 图生图可用的内容占位符**:
+
+| Placeholder | Format | Use Case |
+|-------------|--------|----------|
+| `{content}` | `[{image: "..."}, {text: "..."}]` | DashScope API |
+| `{openai_content}` | `[{type: "image_url", image_url: {url: "..."}}, {type: "text", text: "..."}]` | OpenAI/LiteLLM |
+| `{gemini_parts}` | `[{inlineData: {mimeType: "...", data: "..."}}, {text: "..."}]` | Direct Vertex AI |
+
+### Google Gemini (Direct Vertex AI)
+
+For direct Vertex AI access, Gemini returns images as base64-encoded `inlineData`. Use `response_format: "base64"`:
+
+对于直接访问 Vertex AI，Gemini 以 base64 编码的 `inlineData` 返回图像。使用 `response_format: "base64"`：
+
+```json
+{
+  "providers": {
+    "vertex": {
+      "apiKey": "your-gcloud-access-token",
+      "models": {
+        "gemini-2.0-flash-preview-image-generation": {
+          "url": "https://us-central1-aiplatform.googleapis.com/v1/projects/YOUR_PROJECT/locations/us-central1/publishers/google/models/gemini-2.0-flash-preview-image-generation:generateContent",
+          "service_type": "text2img",
+          "mode": "sync",
+          "response_format": "base64",
+          "response_image_path": "candidates[*].content.parts[*].inlineData",
+          "request_template": {
+            "contents": {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "{prompt}"
+                }
+              ]
+            },
+            "generationConfig": {
+              "responseModalities": ["TEXT", "IMAGE"]
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### Multiple Providers | 多个 Provider
+
+You can configure multiple providers simultaneously. The application will use the first available model matching the requested service type:
+
+您可以同时配置多个 provider。应用程序将使用第一个匹配请求服务类型的可用模型：
+
+```json
+{
+  "providers": {
+    "qwen": {
+      "apiKey": "sk-qwen-key",
+      "models": { ... }
+    },
+    "gemini": {
+      "apiKey": "gemini-key", 
+      "models": { ... }
+    }
+  }
+}
+```
 
 ---
 

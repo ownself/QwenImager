@@ -107,6 +107,18 @@ fn parse_path(path: &str) -> Vec<Segment> {
 /// "data[*].url"                                 → OpenAI DALL-E response
 /// ```
 pub fn extract_strings(json: &Value, path: &str) -> Vec<String> {
+    let values = extract_values(json, path);
+    values
+        .into_iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect()
+}
+
+/// Extract JSON values from a JSON document using a dot-notation path.
+///
+/// Returns the raw `Value` objects at the path, which can be strings, objects, etc.
+/// Used internally by both `extract_strings` and `extract_base64_images`.
+fn extract_values(json: &Value, path: &str) -> Vec<Value> {
     let segments = parse_path(path);
     let mut current: Vec<&Value> = vec![json];
 
@@ -129,10 +141,56 @@ pub fn extract_strings(json: &Value, path: &str) -> Vec<String> {
         current = next;
     }
 
-    current
-        .into_iter()
-        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-        .collect()
+    current.into_iter().cloned().collect()
+}
+
+/// Extract base64-encoded images from a JSON response and convert to data URIs.
+///
+/// Expects the path to point to objects with `mimeType` and `data` fields,
+/// such as Gemini's `inlineData` format:
+///
+/// ```json
+/// {
+///   "inlineData": {
+///     "mimeType": "image/png",
+///     "data": "iVBORw0KGgo..."
+///   }
+/// }
+/// ```
+///
+/// Returns a list of `data:{mimeType};base64,{data}` URIs.
+///
+/// # Examples
+///
+/// ```text
+/// "candidates[*].content.parts[*].inlineData"  → Gemini response
+/// ```
+pub fn extract_base64_images(json: &Value, path: &str) -> Vec<String> {
+    let values = extract_values(json, path);
+    let mut results = Vec::new();
+
+    for val in values {
+        // Handle direct inlineData object: { "mimeType": "...", "data": "..." }
+        if let (Some(mime), Some(data)) = (
+            val.get("mimeType").and_then(|v| v.as_str()),
+            val.get("data").and_then(|v| v.as_str()),
+        ) {
+            results.push(format!("data:{};base64,{}", mime, data));
+            continue;
+        }
+
+        // Handle nested structure: { "inlineData": { "mimeType": "...", "data": "..." } }
+        if let Some(inline) = val.get("inlineData") {
+            if let (Some(mime), Some(data)) = (
+                inline.get("mimeType").and_then(|v| v.as_str()),
+                inline.get("data").and_then(|v| v.as_str()),
+            ) {
+                results.push(format!("data:{};base64,{}", mime, data));
+            }
+        }
+    }
+
+    results
 }
 
 // ── Service Type Inference ──
