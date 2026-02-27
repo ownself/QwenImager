@@ -130,7 +130,7 @@ pub async fn translate_image(
     let response_path = mc
         .response_image_path
         .clone()
-        .unwrap_or_else(|| "output.results[*].url".to_string());
+        .unwrap_or_else(|| "output.image_url".to_string());
 
     // Resolve effective mode
     let (mode, poll_config) = match mc.mode {
