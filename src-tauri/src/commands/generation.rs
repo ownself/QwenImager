@@ -327,11 +327,11 @@ pub async fn edit_image(
     // Build content array: images first (in order), then text
     let mut content: Vec<ImageEditContent> = Vec::new();
     for path in &image_paths {
-        // For the API, use file:// URL for local images
+        // For the API: HTTP URLs pass through, local files are Base64-encoded
         let image_url = if path.starts_with("http") {
             path.clone()
         } else {
-            format!("file://{}", path.replace('\\', "/"))
+            crate::services::image_utils::encode_image_to_data_uri(path)?
         };
         content.push(ImageEditContent::Image { image: image_url });
     }

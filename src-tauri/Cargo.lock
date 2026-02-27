@@ -3195,6 +3195,7 @@ dependencies = [
 name = "qwen-imager"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "dirs",
  "reqwest 0.12.28",
  "rusqlite",

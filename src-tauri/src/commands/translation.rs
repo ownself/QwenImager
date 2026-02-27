@@ -48,11 +48,11 @@ pub async fn translate_image(
     let model_name = model_entry.0.clone();
     let model_url = &model_entry.1.url;
 
-    // Build image URL: local files need file:// prefix
+    // Build image URL: HTTP URLs pass through, local files are Base64-encoded
     let image_url = if image_path.starts_with("http") {
         image_path.clone()
     } else {
-        format!("file://{}", image_path.replace('\\', "/"))
+        crate::services::image_utils::encode_image_to_data_uri(&image_path)?
     };
 
     // Create user message in DB (no text content for translation, image is the input)
