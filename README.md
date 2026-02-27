@@ -4,6 +4,8 @@ A cross-platform desktop application for AI image generation powered by Qwen (To
 
 一款基于 Qwen（通义万象）API 的跨平台桌面 AI 图像生成应用。使用 Tauri v2 构建，轻量且高性能。
 
+![QwenImager](QwenImager.png)
+
 ---
 
 ## Features | 功能特性
