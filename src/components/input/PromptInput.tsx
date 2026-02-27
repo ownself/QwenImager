@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, type KeyboardEvent } from "react";
 import { SendHorizontal } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface PromptInputProps {
   disabled?: boolean;
@@ -46,7 +47,7 @@ export function PromptInput({
   }, []);
 
   return (
-    <div className="flex items-end gap-2">
+    <div className={cn("flex items-end gap-3")}>
       <div className="relative flex-1">
         <textarea
           ref={textareaRef}
@@ -59,14 +60,18 @@ export function PromptInput({
           disabled={disabled || submitting}
           placeholder="Enter your prompt... (Shift+Enter for new line)"
           rows={1}
-          className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ minHeight: "40px", maxHeight: "200px" }}
+          className={cn(
+            "w-full resize-none rounded-xl border border-input bg-background px-4 py-3 text-sm shadow-sm ring-offset-background transition-shadow placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:shadow-md focus-visible:shadow-ring/10 disabled:cursor-not-allowed disabled:opacity-50"
+          )}
+          style={{ minHeight: "44px", maxHeight: "200px" }}
         />
       </div>
       <button
         onClick={handleSubmit}
         disabled={!canSubmit}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+        className={cn(
+          "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/25 transition-all duration-200 hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30 hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:scale-100"
+        )}
         title="Submit (Enter)"
       >
         <SendHorizontal className="h-4 w-4" />

@@ -3,6 +3,8 @@ import type { MessageDetail } from "@/lib/tauri";
 import type { GeneratingStatus } from "@/stores/conversationStore";
 import { MessageBubble } from "./MessageBubble";
 import { LoadingState } from "@/components/common/LoadingState";
+import { cn } from "@/lib/utils";
+import { Bot } from "lucide-react";
 
 interface ChatAreaProps {
   messages: MessageDetail[];
@@ -53,9 +55,9 @@ export function ChatArea({
   return (
     <div
       ref={scrollRef}
-      className="flex-1 overflow-y-auto px-4 py-4"
+      className={cn("flex-1 overflow-y-auto px-4 py-6")}
     >
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className={cn("mx-auto flex max-w-3xl flex-col gap-6")}>
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
@@ -64,11 +66,11 @@ export function ChatArea({
         {generatingStatus &&
           generatingStatus !== "succeeded" &&
           generatingStatus !== "failed" && (
-            <div className="flex gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <span className="text-xs">AI</span>
+            <div className="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground ring-2 ring-background shadow-sm">
+                <Bot className="h-4 w-4" />
               </div>
-              <div className="rounded-lg bg-muted px-3 py-2">
+              <div className={cn("rounded-2xl bg-secondary px-4 py-3 shadow-sm")}>
                 <LoadingState
                   message={
                     statusMessages[generatingStatus] ?? "Processing..."

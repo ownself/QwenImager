@@ -14,6 +14,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { ImagePlus, X, AlertCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { open } from "@tauri-apps/plugin-dialog";
 import { stat } from "@tauri-apps/plugin-fs";
 import { useClipboard } from "@/hooks/useClipboard";
@@ -68,7 +69,7 @@ function SortableImageItem({
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border"
+      className={cn("group relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border border-border shadow-sm transition-all duration-200 hover:shadow-md hover:border-primary/20 hover:scale-105")}
     >
       <img
         src={convertFileSrc(image.filePath)}
@@ -79,7 +80,7 @@ function SortableImageItem({
         {...listeners}
       />
       {/* Order badge */}
-      <span className="absolute bottom-1 left-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-[10px] font-bold text-white">
+      <span className="absolute bottom-1 left-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-xs font-bold text-white">
         {index + 1}
       </span>
       {/* Remove button */}
@@ -228,7 +229,7 @@ export function ImageUpload({
             items={images.map((img) => img.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2.5">
               {images.map((image, index) => (
                 <SortableImageItem
                   key={image.id}
@@ -246,7 +247,7 @@ export function ImageUpload({
         {images.length < maxCount && !disabled && (
           <button
             onClick={handleAddClick}
-            className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            className={cn("flex h-24 w-24 shrink-0 items-center justify-center rounded-xl border-2 border-dashed border-border text-muted-foreground transition-all duration-200 hover:border-primary hover:text-primary hover:bg-primary/5 hover:scale-105")}
             title="Add images (or Ctrl+V to paste)"
           >
             <ImagePlus className="h-6 w-6" />

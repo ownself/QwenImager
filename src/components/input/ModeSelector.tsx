@@ -1,5 +1,6 @@
 import { ImagePlus, Languages, Type } from "lucide-react";
 import type { Mode } from "@/stores/conversationStore";
+import { cn } from "@/lib/utils";
 
 interface ModeSelectorProps {
   currentMode: Mode;
@@ -19,20 +20,20 @@ export function ModeSelector({
   onModeChange,
 }: ModeSelectorProps) {
   return (
-    <div className="flex gap-1 rounded-lg bg-muted p-1">
+    <div className={cn("flex gap-1 rounded-xl bg-muted p-1")}>
       {modes.map(({ value, label, icon: Icon, enabled }) => (
         <button
           key={value}
           onClick={() => onModeChange(value)}
           disabled={disabled || !enabled}
-          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors
-            ${
-              currentMode === value
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }
-            ${disabled || !enabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}
-          `}
+          className={cn(
+            "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-200",
+            currentMode === value
+              ? "bg-background text-primary shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-background/50",
+            (disabled || !enabled) && "cursor-not-allowed opacity-50",
+            !disabled && enabled && "cursor-pointer"
+          )}
           title={!enabled ? "Coming soon" : label}
         >
           <Icon className="h-3.5 w-3.5" />

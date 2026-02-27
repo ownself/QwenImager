@@ -1,5 +1,6 @@
 import type { AppError } from "@/lib/tauri";
 import { AlertCircle, KeyRound, Wifi, Clock, Settings, FileWarning } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ErrorDisplayProps {
   error: AppError | string;
@@ -35,12 +36,15 @@ export function ErrorDisplay({ error, className = "" }: ErrorDisplayProps) {
 
   return (
     <div
-      className={`flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200 ${className}`}
+      className={cn(
+        "flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-foreground",
+        className
+      )}
     >
-      <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
       <div className="min-w-0">
         <p className="font-medium">{hint}</p>
-        <p className="mt-1 text-red-600 dark:text-red-400 break-words">
+        <p className="mt-1 text-destructive/80 break-words">
           {message}
         </p>
       </div>

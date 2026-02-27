@@ -6,6 +6,7 @@ import { MainPanel } from "@/components/layout/MainPanel";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ConfigGuide } from "@/components/common/ConfigGuide";
 import { LoadingState } from "@/components/common/LoadingState";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 function App() {
   const loadConfig = useConfigStore((s) => s.loadConfig);
@@ -48,18 +49,20 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen bg-background text-foreground">
-      <Sidebar
-        conversations={conversations}
-        currentConversationId={currentConversationId}
-        collapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
-        onNewConversation={newConversation}
-        onSelectConversation={switchConversation}
-        onDeleteConversation={deleteConversation}
-      />
-      <MainPanel />
-    </div>
+    <TooltipProvider>
+      <div className="flex h-screen w-screen bg-background text-foreground">
+        <Sidebar
+          conversations={conversations}
+          currentConversationId={currentConversationId}
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
+          onNewConversation={newConversation}
+          onSelectConversation={switchConversation}
+          onDeleteConversation={deleteConversation}
+        />
+        <MainPanel />
+      </div>
+    </TooltipProvider>
   );
 }
 

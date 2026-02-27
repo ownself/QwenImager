@@ -1,4 +1,5 @@
 import { ArrowRightLeft } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface LanguageSelectorProps {
   sourceLang: string;
@@ -33,7 +34,7 @@ export function LanguageSelector({
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={cn("flex items-center gap-3 rounded-xl bg-secondary/50 px-3 py-2")}>
       <select
         value={sourceLang}
         onChange={(e) => {
@@ -45,7 +46,7 @@ export function LanguageSelector({
           onSourceLangChange(val);
         }}
         disabled={disabled}
-        className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+        className={cn("appearance-none rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-ring focus:shadow-md focus:shadow-ring/10 disabled:cursor-not-allowed disabled:opacity-50")}
       >
         {LANGUAGES.map((lang) => (
           <option key={lang.code} value={lang.code}>
@@ -57,7 +58,7 @@ export function LanguageSelector({
       <button
         onClick={handleSwap}
         disabled={disabled}
-        className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        className={cn("flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-all duration-200 hover:bg-accent hover:text-foreground hover:scale-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50")}
         title="Swap languages"
       >
         <ArrowRightLeft className="h-4 w-4" />
@@ -74,7 +75,7 @@ export function LanguageSelector({
           onTargetLangChange(val);
         }}
         disabled={disabled}
-        className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+        className={cn("appearance-none rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground shadow-sm transition-shadow focus:outline-none focus:ring-2 focus:ring-ring focus:shadow-md focus:shadow-ring/10 disabled:cursor-not-allowed disabled:opacity-50")}
       >
         {LANGUAGES.map((lang) => (
           <option key={lang.code} value={lang.code}>
