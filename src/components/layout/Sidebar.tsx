@@ -1,0 +1,171 @@
+import { Plus, Trash2, PanelLeftClose, PanelLeft } from "lucide-react";
+import type { ConversationSummary } from "@/lib/tauri";
+import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+interface SidebarProps {
+  conversations: ConversationSummary[];
+  currentConversationId: string | null;
+  collapsed: boolean;
+  onToggle: () => void;
+  onNewConversation: () => void;
+  onSelectConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
+}
+
+function formatTime(timestamp: number): string {
+  const date = new Date(timestamp * 1000);
+  const now = new Date();
+  const diffDays = Math.floor(
+    (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (diffDays === 0) {
+    return date.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+export function Sidebar({
+  conversations,
+  currentConversationId,
+  collapsed,
+  onToggle,
+  onNewConversation,
+  onSelectConversation,
+  onDeleteConversation,
+}: SidebarProps) {
+  return (
+    <div
+      className={cn(
+        "flex h-full flex-col border-r border-border bg-secondary shadow-sm transition-[width] duration-300 ease-in-out overflow-hidden",
+        collapsed ? "w-12" : "w-64"
+      )}
+    >
+      {/* Header */}
+      <div
+        className={cn(
+          "flex shrink-0 items-center border-b border-border px-4 py-3",
+          collapsed ? "justify-center" : "justify-between"
+        )}
+      >
+        {!collapsed && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onNewConversation}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent",
+                  "animate-in fade-in duration-200"
+                )}
+              >
+                <Plus className="h-4 w-4" />
+                <span>New Chat</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">New conversation</TooltipContent>
+          </Tooltip>
+        )}
+
+        {collapsed && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onNewConversation}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">New conversation</TooltipContent>
+          </Tooltip>
+        )}
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onToggle}
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                collapsed && "mt-2"
+              )}
+            >
+              {collapsed ? (
+                <PanelLeft className="h-4 w-4" />
+              ) : (
+                <PanelLeftClose className="h-4 w-4" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side={collapsed ? "right" : "bottom"}>
+            {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* Conversation list */}
+      {!collapsed && (
+        <ScrollArea className="flex-1">
+          {conversations.length === 0 ? (
+            <div className="px-3 py-6 text-center text-xs text-muted-foreground animate-in fade-in duration-200">
+              No conversations yet
+            </div>
+          ) : (
+            <div className="py-1">
+              {conversations.map((conv) => (
+                <div
+                  key={conv.id}
+                  onClick={() => onSelectConversation(conv.id)}
+                  className={cn(
+                    "group mx-2 flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-all duration-200",
+                    currentConversationId === conv.id
+                      ? "bg-primary/10 text-foreground shadow-sm border-l-2 border-l-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{conv.title}</div>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span>{formatTime(conv.updatedAt)}</span>
+                      <span>&middot;</span>
+                      <span>{conv.messageCount} msgs</span>
+                    </div>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteConversation(conv.id);
+                        }}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      Delete conversation
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+      )}
+    </div>
+  );
+}
