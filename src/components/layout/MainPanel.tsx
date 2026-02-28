@@ -97,8 +97,8 @@ export function MainPanel() {
 
       {/* Input area at the bottom */}
       <div className={cn("border-t border-border/50 bg-background/80 px-4 py-4 shadow-[0_-1px_12px_rgba(0,0,0,0.06)] backdrop-blur-sm")}>
-        <div className={cn("mx-auto max-w-3xl space-y-3")}>
-          <div className="flex items-center justify-between">
+        <div className={cn("mx-auto max-w-3xl space-y-4")}>
+          <div className="flex items-center justify-between gap-4">
             <ModeSelector
               currentMode={mode}
               onModeChange={setMode}

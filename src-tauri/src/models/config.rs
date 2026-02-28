@@ -27,6 +27,17 @@ pub enum ServiceType {
     Translate,
 }
 
+/// The format of image data in the API response.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseFormat {
+    /// Response contains image URLs (e.g., DashScope, DALL-E)
+    #[default]
+    Url,
+    /// Response contains base64-encoded image data (e.g., Gemini)
+    Base64,
+}
+
 /// The API calling mode.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -87,11 +98,17 @@ pub struct ModelConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_template: Option<serde_json::Value>,
 
-    /// Dot-notation path to extract image URLs from the API response.
-    /// Example: `"output.results[*].url"` or `"data[*].url"`.
+    /// Dot-notation path to extract image data from the API response.
+    /// Example: `"output.results[*].url"` or `"candidates[*].content.parts[*].inlineData"`.
     /// If absent, uses built-in default path for the service type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_image_path: Option<String>,
+
+    /// Format of image data in the response: "url" (default) or "base64".
+    /// - `url`: response_image_path points to URL strings
+    /// - `base64`: response_image_path points to objects with `mimeType` and `data` fields
+    #[serde(default)]
+    pub response_format: ResponseFormat,
 
     /// Extra headers to include in API requests.
     #[serde(default, skip_serializing_if = "Option::is_none")]

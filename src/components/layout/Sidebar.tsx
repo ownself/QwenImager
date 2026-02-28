@@ -1,3 +1,4 @@
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Plus, Trash2, PanelLeftClose, PanelLeft } from "lucide-react";
 import type { ConversationSummary } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
@@ -7,6 +8,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useUIStore } from "@/stores/uiStore";
 
 interface SidebarProps {
   conversations: ConversationSummary[];
@@ -48,13 +50,62 @@ export function Sidebar({
   onSelectConversation,
   onDeleteConversation,
 }: SidebarProps) {
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useUIStore((s) => s.setSidebarWidth);
+  const [isResizing, setIsResizing] = useState(false);
+  const startXRef = useRef<number>(0);
+  const startWidthRef = useRef<number>(0);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    startXRef.current = e.clientX;
+    startWidthRef.current = sidebarWidth;
+  }, [sidebarWidth]);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return;
+    const diff = e.clientX - startXRef.current;
+    setSidebarWidth(startWidthRef.current + diff);
+  }, [isResizing, setSidebarWidth]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    }
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isResizing, handleMouseMove, handleMouseUp]);
+
   return (
     <div
       className={cn(
-        "flex h-full flex-col border-r border-border bg-secondary shadow-sm transition-[width] duration-300 ease-in-out overflow-hidden",
-        collapsed ? "w-12" : "w-64"
+        "relative flex h-full flex-col border-r border-border bg-secondary shadow-sm transition-[width] duration-150 ease-out overflow-hidden",
+        collapsed ? "w-12" : "w-12"
       )}
+      style={!collapsed ? { width: sidebarWidth } : undefined}
     >
+      {/* Resize handle */}
+      {!collapsed && (
+        <div
+          className={cn(
+            "absolute right-0 top-0 bottom-0 w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors z-10",
+            isResizing && "bg-primary/50"
+          )}
+          onMouseDown={handleMouseDown}
+        />
+      )}
       {/* Header */}
       <div
         className={cn(
@@ -136,7 +187,7 @@ export function Sidebar({
                       : "text-muted-foreground hover:bg-accent hover:text-foreground"
                   )}
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="truncate font-medium">{conv.title}</div>
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <span>{formatTime(conv.updatedAt)}</span>
@@ -151,7 +202,7 @@ export function Sidebar({
                           e.stopPropagation();
                           onDeleteConversation(conv.id);
                         }}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-all duration-150 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

@@ -7,11 +7,11 @@ use tauri::State;
 
 use crate::error::AppError;
 use crate::models::api::{GenerationEvent, GenerationParams};
-use crate::models::config::{ApiMode, AsyncPollConfig, ModelConfig, ServiceType};
+use crate::models::config::{ApiMode, AsyncPollConfig, ModelConfig, ResponseFormat, ServiceType};
 use crate::services::config_loader;
 use crate::services::template_engine::{
-    default_img2img_template, default_text2img_template, extract_strings, infer_service_type,
-    render_template,
+    default_img2img_template, default_text2img_template, extract_base64_images, extract_strings,
+    infer_service_type, render_template,
 };
 use crate::AppState;
 
@@ -62,6 +62,65 @@ fn default_response_path(mc: &ModelConfig, model_name: &str) -> String {
     match st {
         ServiceType::Img2img => "output.choices[*].message.content[*].image".to_string(),
         _ => "output.results[*].url".to_string(),
+    }
+}
+
+/// Extract images from API response based on the configured response format.
+///
+/// - `ResponseFormat::Url`: Extract URL strings from the response path
+/// - `ResponseFormat::Base64`: Extract base64 data and convert to data: URIs
+fn extract_images(resp: &Value, mc: &ModelConfig, model_name: &str) -> Vec<String> {
+    let response_path = default_response_path(mc, model_name);
+
+    match mc.response_format {
+        ResponseFormat::Url => extract_strings(resp, &response_path),
+        ResponseFormat::Base64 => extract_base64_images(resp, &response_path),
+    }
+}
+
+/// Parse a data URI into (mimeType, base64Data).
+///
+/// Example: "data:image/png;base64,iVBORw..." -> ("image/png", "iVBORw...")
+fn parse_data_uri(data_uri: &str) -> Option<(String, String)> {
+    if !data_uri.starts_with("data:") {
+        return None;
+    }
+    // Format: data:mime/type;base64,BASE64DATA
+    let without_prefix = &data_uri[5..]; // Remove "data:"
+    let semicolon_pos = without_prefix.find(';')?;
+    let mime = &without_prefix[..semicolon_pos];
+    
+    let rest = &without_prefix[semicolon_pos + 1..];
+    if !rest.starts_with("base64,") {
+        return None;
+    }
+    let base64_data = &rest[7..]; // Remove "base64,"
+    
+    Some((mime.to_string(), base64_data.to_string()))
+}
+
+/// Truncate base64 data in JSON for debug logging.
+fn truncate_base64_in_json(value: &Value) -> Value {
+    match value {
+        Value::String(s) => {
+            // If it looks like base64 data (long string), truncate it
+            if s.len() > 100 && !s.contains(' ') {
+                Value::String(format!("{}...[truncated {} chars]", &s[..50], s.len() - 50))
+            } else {
+                Value::String(s.clone())
+            }
+        }
+        Value::Array(arr) => {
+            Value::Array(arr.iter().map(truncate_base64_in_json).collect())
+        }
+        Value::Object(map) => {
+            Value::Object(
+                map.iter()
+                    .map(|(k, v)| (k.clone(), truncate_base64_in_json(v)))
+                    .collect(),
+            )
+        }
+        other => other.clone(),
     }
 }
 
@@ -153,7 +212,6 @@ pub async fn generate_image(
         .ok_or_else(|| AppError::Api("Failed to render request template".to_string()))?;
 
     let extra_headers = mc.headers.clone().unwrap_or_default();
-    let response_path = default_response_path(&mc, &resolved_name);
 
     let (mode, poll_config) = resolve_mode_and_poll(&mc, &resolved_name);
 
@@ -205,7 +263,7 @@ pub async fn generate_image(
                 .unwrap_or("unknown")
                 .to_string();
 
-            let image_urls = extract_strings(&final_resp, &response_path);
+            let image_urls = extract_images(&final_resp, &mc, &resolved_name);
 
             // Create assistant message and save generation results
             let assistant_msg = state.db.add_message(
@@ -239,12 +297,20 @@ pub async fn generate_image(
                 .execute_sync(&mc.url, &api_key, &body, &extra_headers)
                 .await?;
 
-            let image_urls = extract_strings(&resp, &response_path);
+            let image_urls = extract_images(&resp, &mc, &resolved_name);
 
             if image_urls.is_empty() {
-                return Err(AppError::Api(
-                    "No images returned from API response".to_string(),
-                ));
+                // Debug: log the response structure for troubleshooting
+                let resp_debug = truncate_base64_in_json(&resp);
+                eprintln!("[DEBUG] No images extracted. Response: {}", 
+                    serde_json::to_string_pretty(&resp_debug).unwrap_or_default());
+                eprintln!("[DEBUG] response_image_path: {:?}", mc.response_image_path);
+                eprintln!("[DEBUG] response_format: {:?}", mc.response_format);
+                
+                return Err(AppError::Api(format!(
+                    "No images returned from API response. Check response_image_path configuration. Response keys: {:?}",
+                    resp.as_object().map(|o| o.keys().collect::<Vec<_>>()).unwrap_or_default()
+                )));
             }
 
             let assistant_msg = state.db.add_message(
@@ -422,23 +488,54 @@ pub async fn edit_image(
         )?;
     }
 
-    // Build content array: images first (in order), then text
-    let mut content_arr: Vec<Value> = Vec::new();
+    // Build content arrays in different formats for various API providers
+    let mut dashscope_content: Vec<Value> = Vec::new();
+    let mut openai_content: Vec<Value> = Vec::new();
+    let mut gemini_parts: Vec<Value> = Vec::new();
+
     for path in &image_paths {
-        let image_url = if path.starts_with("http") {
+        let image_data_uri = if path.starts_with("http") {
             path.clone()
         } else {
             crate::services::image_utils::encode_image_to_data_uri(path)?
         };
-        content_arr.push(json!({ "image": image_url }));
+
+        // DashScope format: { "image": "data:..." }
+        dashscope_content.push(json!({ "image": image_data_uri.clone() }));
+
+        // OpenAI/LiteLLM format: { "type": "image_url", "image_url": { "url": "data:..." } }
+        openai_content.push(json!({
+            "type": "image_url",
+            "image_url": { "url": image_data_uri.clone() }
+        }));
+
+        // Gemini format: { "inlineData": { "mimeType": "...", "data": "..." } }
+        // Extract mime and base64 from data URI
+        if let Some((mime, base64_data)) = parse_data_uri(&image_data_uri) {
+            gemini_parts.push(json!({
+                "inlineData": {
+                    "mimeType": mime,
+                    "data": base64_data
+                }
+            }));
+        }
     }
-    content_arr.push(json!({ "text": prompt.clone() }));
+
+    // Add text content
+    dashscope_content.push(json!({ "text": prompt.clone() }));
+    openai_content.push(json!({ "type": "text", "text": prompt.clone() }));
+    gemini_parts.push(json!({ "text": prompt.clone() }));
 
     // Build template variables
     let mut vars: HashMap<&str, Value> = HashMap::new();
     vars.insert("model", Value::String(resolved_name.clone()));
-    // {content} is a special JSON array replacement (not a string)
-    vars.insert("content", Value::Array(content_arr));
+    vars.insert("prompt", Value::String(prompt.clone()));
+    // {content} for DashScope format (backward compatible)
+    vars.insert("content", Value::Array(dashscope_content));
+    // {openai_content} for OpenAI/LiteLLM format
+    vars.insert("openai_content", Value::Array(openai_content));
+    // {gemini_parts} for direct Gemini Vertex AI format
+    vars.insert("gemini_parts", Value::Array(gemini_parts));
 
     // Use configured template or default
     let template = mc
@@ -449,7 +546,6 @@ pub async fn edit_image(
         .ok_or_else(|| AppError::Api("Failed to render request template".to_string()))?;
 
     let extra_headers = mc.headers.clone().unwrap_or_default();
-    let response_path = default_response_path(&mc, &resolved_name);
 
     let (mode, poll_config) = resolve_mode_and_poll(&mc, &resolved_name);
 
@@ -476,11 +572,15 @@ pub async fn edit_image(
         }
     };
 
-    // Extract image URLs — try primary path first, then fallback for img2img
-    let mut image_urls = extract_strings(&resp, &response_path);
-    if image_urls.is_empty() && response_path.contains("choices") {
-        // Fallback to results format
-        image_urls = extract_strings(&resp, "output.results[*].url");
+    // Extract images based on response format
+    let mut image_urls = extract_images(&resp, &mc, &resolved_name);
+    
+    // Fallback for img2img: try results format if choices format returned empty
+    if image_urls.is_empty() && mc.response_format == ResponseFormat::Url {
+        let response_path = default_response_path(&mc, &resolved_name);
+        if response_path.contains("choices") {
+            image_urls = extract_strings(&resp, "output.results[*].url");
+        }
     }
 
     if image_urls.is_empty() {
