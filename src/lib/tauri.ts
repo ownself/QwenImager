@@ -62,6 +62,7 @@ export interface ModelInfo {
   name: string;
   provider: string;
   serviceType: "text2img" | "img2img" | "translate";
+  supportsSize: boolean;
 }
 
 export interface ConfigStatus {

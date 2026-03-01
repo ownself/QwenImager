@@ -8,6 +8,8 @@ import {
   type EditResult,
   type ConversationSummary,
 } from "@/lib/tauri";
+import { parsePrompt } from "@/lib/promptParser";
+import { useConfigStore } from "@/stores/configStore";
 import type { UploadedImage } from "@/components/input/ImageUpload";
 
 export type GeneratingStatus =
@@ -120,6 +122,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       const mode = state.mode;
 
       if (mode === "text2img") {
+        // Check if the selected model supports the size parameter
+        const selectedModelInfo = useConfigStore
+          .getState()
+          .availableModels.find((m) => m.name === state.selectedModel);
+        const supportsSize = selectedModelInfo?.supportsSize ?? false;
+
+        // Only extract size from prompt when the model supports it
+        let cleanPrompt = prompt;
+        let mergedParams: GenerationParams = { ...(params ?? {}) };
+        if (supportsSize) {
+          const parsed = parsePrompt(prompt);
+          cleanPrompt = parsed.cleanPrompt;
+          mergedParams = { ...parsed.extractedParams, ...mergedParams };
+        }
+
+
         // Create a channel for generation events
         const channel = createChannel<GenerationEvent>((event) => {
           switch (event.event) {
@@ -154,6 +172,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         });
 
         // Add user message to UI immediately (optimistic)
+        // Show original prompt so user sees what they typed
         const userMessage: MessageDetail = {
           id: crypto.randomUUID(),
           role: "user",
@@ -167,9 +186,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
         await invokeCommand("generate_image", {
           conversationId,
-          prompt,
+          prompt: cleanPrompt,
           modelName: state.selectedModel ?? null,
-          params: params ?? null,
+          params: mergedParams,
           onEvent: channel,
         });
       } else if (mode === "img2img") {
@@ -183,7 +202,22 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           return;
         }
 
+        // Check if the selected model supports the size parameter
+        const img2imgModelInfo = useConfigStore
+          .getState()
+          .availableModels.find((m) => m.name === state.selectedModel);
+        const img2imgSupportsSize = img2imgModelInfo?.supportsSize ?? false;
+
+        let img2imgCleanPrompt = prompt;
+        let img2imgParams: GenerationParams = { ...(params ?? {}) };
+        if (img2imgSupportsSize) {
+          const parsed = parsePrompt(prompt);
+          img2imgCleanPrompt = parsed.cleanPrompt;
+          img2imgParams = { ...parsed.extractedParams, ...img2imgParams };
+        }
+
         // Add optimistic user message with attachment info
+        // Show original prompt so user sees what they typed
         const userMessage: MessageDetail = {
           id: crypto.randomUUID(),
           role: "user",
@@ -207,9 +241,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         await invokeCommand<EditResult>("edit_image", {
           conversationId,
           imagePaths,
-          prompt,
+          prompt: img2imgCleanPrompt,
           modelName: state.selectedModel ?? null,
-          params: params ?? null,
+          params: img2imgParams,
         });
 
         // Reload messages from DB to get full details
