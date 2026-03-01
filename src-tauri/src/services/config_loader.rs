@@ -100,6 +100,7 @@ pub fn load_config_inner() -> Result<(Configuration, Vec<ModelInfo>), AppError> 
                 name: model_name.clone(),
                 provider: provider_name.clone(),
                 service_type,
+                supports_size: model_config.supports_size,
             });
         }
     }

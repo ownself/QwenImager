@@ -92,35 +92,53 @@ QwenImager 从 `~/.qwenimage/setting.json` 读取配置。使用应用前，您�
     "qwen": {
       "apiKey": "sk-your-api-key-here",
       "models": {
-        "qwen-max-vl": {
-          "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
-          "service_type": "text2img",
-          "mode": "async_poll",
-          "async_poll": {
-            "submit_headers": {
-              "X-DashScope-Async": "enable"
-            },
-            "poll_url": "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}",
-            "poll_interval_secs": 3,
-            "timeout_secs": 180
-          }
-        },
-        "qwen-vl-max": {
+        "qwen-image-max": {
           "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
-          "service_type": "img2img"
-        },
-        "qwen-mt-vl": {
-          "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis",
-          "service_type": "translate",
-          "mode": "async_poll",
-          "async_poll": {
-            "submit_headers": {
-              "X-DashScope-Async": "enable"
-            },
-            "poll_url": "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}",
-            "poll_interval_secs": 3,
-            "timeout_secs": 180
+          "service_type": "text2img",
+          "mode": "sync",
+          "supports_size": true,
+          "response_format": "url",
+          "response_image_path": "output.choices[*].message.content[*].image",
+          "request_template": {
+              "model": "{model}",
+              "input": {
+                  "messages": [
+                  {
+                      "role": "user",
+                      "content": [{"text": "{prompt}"}]
+                  }
+                  ]
+              },
+              "parameters": { "size": "{size}" }
           }
+        },
+        "wan2.6-image": {
+            "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+            "service_type": "img2img",
+            "mode": "sync",
+            "supports_size": true,
+            "response_image_path": "output.choices[*].message.content[*].image",
+            "request_template": {
+                "model": "{model}",
+                "input": {
+                    "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"text": "{prompt}"}]
+                    }
+                    ]
+                },
+                "parameters": { "n": 1, "size": "{size}" }
+            }
+        },
+        "qwen-mt-image": {
+            "url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis",
+            "service_type": "translate",
+            "mode": "async_poll",
+            "async_poll": {
+                "submit_headers": { "X-DashScope-Async": "enable" },
+                "poll_url": "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
+            }
         }
       }
     }
@@ -171,20 +189,23 @@ QwenImager 设计用于配合阿里云通义万象图像生成 API。以下是�
 
 | Model | Description |
 |-------|-------------|
-| `qwen-max-vl` | High-quality image generation from text prompts |
-| `qwen-plus-vl` | Balanced quality and speed |
+| `qwen-image-max` | High-quality image generation from text prompts |
+| `wan2.6-t2i` | Beautiful image generation |
+| `qwen-image-plus` | Balanced quality and speed |
+| `z-image-turbo` | lightweight image generation model |
 
 ### Image-to-Image | 图生图
 
 | Model | Description |
 |-------|-------------|
-| `qwen-vl-max` | Image editing with multimodal understanding |
+| `qwen-image-edit-max` | Image editing with multimodal understanding |
+| `wan2.6-image` | Image editing with multimodal understanding |
 
 ### Image Translation | 图片翻译
 
 | Model | Description |
 |-------|-------------|
-| `qwen-mt-vl` | Translate text within images |
+| `qwen-mt-image` | Translate text within images |
 
 > **Note**: Model availability depends on your DashScope subscription. Please check [Alibaba Cloud DashScope](https://dashscope.aliyun.com/) for the latest model offerings.
 >
@@ -197,76 +218,6 @@ QwenImager 设计用于配合阿里云通义万象图像生成 API。以下是�
 QwenImager supports any OpenAI-compatible or custom image generation API through its flexible configuration system.
 
 QwenImager 通过灵活的配置系统支持任何 OpenAI 兼容或自定义的图像生成 API。
-
-### Google Gemini (via LiteLLM)
-
-When using Gemini through LiteLLM proxy, images are returned as data URIs in the `message.images` array:
-
-通过 LiteLLM 代理使用 Gemini 时，图像以 data URI 格式返回在 `message.images` 数组中：
-
-#### Text-to-Image | 文生图
-
-```json
-{
-  "providers": {
-    "gemini": {
-      "apiKey": "your-api-key",
-      "models": {
-        "gemini-2.0-flash-preview-image-generation": {
-          "url": "http://your-litellm-server:4000/v1/chat/completions",
-          "service_type": "text2img",
-          "mode": "sync",
-          "response_format": "url",
-          "response_image_path": "choices[*].message.images[*].image_url.url",
-          "request_template": {
-            "model": "{model}",
-            "messages": [
-              {
-                "role": "user",
-                "content": "{prompt}"
-              }
-            ]
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-#### Image-to-Image | 图生图
-
-For image editing, use `{openai_content}` placeholder which formats images in OpenAI vision API style:
-
-对于图像编辑，使用 `{openai_content}` 占位符，它会将图像格式化为 OpenAI vision API 格式：
-
-```json
-{
-  "providers": {
-    "gemini": {
-      "apiKey": "your-api-key",
-      "models": {
-        "gemini-2.0-flash-preview-image-generation-img2img": {
-          "url": "http://your-litellm-server:4000/v1/chat/completions",
-          "service_type": "img2img",
-          "mode": "sync",
-          "response_format": "url",
-          "response_image_path": "choices[*].message.images[*].image_url.url",
-          "request_template": {
-            "model": "gemini-2.0-flash-preview-image-generation",
-            "messages": [
-              {
-                "role": "user",
-                "content": "{openai_content}"
-              }
-            ]
-          }
-        }
-      }
-    }
-  }
-}
-```
 
 **Available content placeholders for img2img | 图生图可用的内容占位符**:
 

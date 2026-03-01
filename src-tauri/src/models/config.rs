@@ -117,6 +117,13 @@ pub struct ModelConfig {
     /// Configuration for async poll mode. Required when `mode == "async_poll"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub async_poll: Option<AsyncPollConfig>,
+
+    /// Whether this model supports the `size` parameter for output resolution.
+    /// When `true`, the `{size}` template variable is injected and the prompt
+    /// parser extracts resolution keywords. When `false` (default), the size
+    /// variable is not injected (even if `{size}` appears in the template).
+    #[serde(default)]
+    pub supports_size: bool,
 }
 
 // ── Frontend-facing types ──
@@ -128,6 +135,8 @@ pub struct ModelInfo {
     pub provider: String,
     #[serde(rename = "serviceType")]
     pub service_type: ServiceType,
+    #[serde(rename = "supportsSize")]
+    pub supports_size: bool,
 }
 
 /// Status returned to the frontend after attempting to load configuration.

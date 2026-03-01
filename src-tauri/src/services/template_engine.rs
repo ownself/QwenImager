@@ -240,12 +240,13 @@ pub fn default_text2img_template() -> Value {
 ///
 /// The `{content}` placeholder is replaced at runtime with a JSON array
 /// containing interleaved image and text content items.
+/// The `{size}` placeholder is replaced with the output resolution.
 ///
 /// ```json
 /// {
 ///   "model": "{model}",
 ///   "input": { "messages": [{ "role": "user", "content": "{content}" }] },
-///   "parameters": { "prompt_extend": true, "watermark": false }
+///   "parameters": { "size": "{size}", "prompt_extend": true, "watermark": false }
 /// }
 /// ```
 pub fn default_img2img_template() -> Value {
@@ -258,6 +259,7 @@ pub fn default_img2img_template() -> Value {
             }]
         },
         "parameters": {
+            "size": "{size}",
             "prompt_extend": true,
             "watermark": false
         }

@@ -193,15 +193,19 @@ pub async fn generate_image(
 
     // Build template variables
     let gen_params = params.unwrap_or_default();
-    let size = gen_params
-        .size
-        .clone()
-        .unwrap_or_else(|| "1024*1024".to_string());
 
     let mut vars: HashMap<&str, Value> = HashMap::new();
     vars.insert("model", Value::String(resolved_name.clone()));
     vars.insert("prompt", Value::String(prompt.clone()));
-    vars.insert("size", Value::String(size));
+
+    // Only inject {size} when the model declares supports_size = true
+    if mc.supports_size {
+        let size = gen_params
+            .size
+            .clone()
+            .unwrap_or_else(|| "1024*1024".to_string());
+        vars.insert("size", Value::String(size));
+    }
 
     // Use configured template or default
     let template = mc
@@ -427,7 +431,7 @@ pub async fn edit_image(
     image_paths: Vec<String>,
     prompt: String,
     model_name: Option<String>,
-    _params: Option<GenerationParams>,
+    params: Option<GenerationParams>,
 ) -> Result<Value, AppError> {
     let (api_key, resolved_name, mc) = resolve_model(&model_name, ServiceType::Img2img)?;
 
@@ -527,9 +531,20 @@ pub async fn edit_image(
     gemini_parts.push(json!({ "text": prompt.clone() }));
 
     // Build template variables
+    let gen_params = params.unwrap_or_default();
+
     let mut vars: HashMap<&str, Value> = HashMap::new();
     vars.insert("model", Value::String(resolved_name.clone()));
     vars.insert("prompt", Value::String(prompt.clone()));
+
+    // Only inject {size} when the model declares supports_size = true
+    if mc.supports_size {
+        let size = gen_params
+            .size
+            .clone()
+            .unwrap_or_else(|| "1280*1280".to_string());
+        vars.insert("size", Value::String(size));
+    }
     // {content} for DashScope format (backward compatible)
     vars.insert("content", Value::Array(dashscope_content));
     // {openai_content} for OpenAI/LiteLLM format
