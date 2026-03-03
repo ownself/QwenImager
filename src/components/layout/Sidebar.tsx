@@ -7,7 +7,6 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUIStore } from "@/stores/uiStore";
 
 interface SidebarProps {
@@ -39,6 +38,60 @@ function formatTime(timestamp: number): string {
     month: "short",
     day: "numeric",
   });
+}
+
+/** Individual conversation list item with hover-to-show delete button. */
+function ConversationItem({
+  conv,
+  isActive,
+  onSelect,
+  onDelete,
+}: {
+  conv: ConversationSummary;
+  isActive: boolean;
+  onSelect: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <div
+      onClick={() => onSelect(conv.id)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className={cn(
+        "mx-2 flex cursor-pointer items-center rounded-lg px-2 py-2.5 text-sm transition-colors duration-150",
+        isActive
+          ? "bg-primary/10 text-foreground shadow-sm border-l-2 border-l-primary"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground"
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">{conv.title}</div>
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span>{formatTime(conv.updatedAt)}</span>
+          <span>&middot;</span>
+          <span>{conv.messageCount} msgs</span>
+        </div>
+      </div>
+      {hovered && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(conv.id);
+              }}
+              className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Delete conversation</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
 }
 
 export function Sidebar({
@@ -169,7 +222,7 @@ export function Sidebar({
 
       {/* Conversation list */}
       {!collapsed && (
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {conversations.length === 0 ? (
             <div className="px-3 py-6 text-center text-xs text-muted-foreground animate-in fade-in duration-200">
               No conversations yet
@@ -177,45 +230,17 @@ export function Sidebar({
           ) : (
             <div className="py-1">
               {conversations.map((conv) => (
-                <div
+                <ConversationItem
                   key={conv.id}
-                  onClick={() => onSelectConversation(conv.id)}
-                  className={cn(
-                    "group mx-2 flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-all duration-200",
-                    currentConversationId === conv.id
-                      ? "bg-primary/10 text-foreground shadow-sm border-l-2 border-l-primary"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                  )}
-                >
-                  <div className="min-w-0 flex-1 overflow-hidden">
-                    <div className="truncate font-medium">{conv.title}</div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <span>{formatTime(conv.updatedAt)}</span>
-                      <span>&middot;</span>
-                      <span>{conv.messageCount} msgs</span>
-                    </div>
-                  </div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteConversation(conv.id);
-                        }}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-all duration-150 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      Delete conversation
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
+                  conv={conv}
+                  isActive={currentConversationId === conv.id}
+                  onSelect={onSelectConversation}
+                  onDelete={onDeleteConversation}
+                />
               ))}
             </div>
           )}
-        </ScrollArea>
+        </div>
       )}
     </div>
   );
