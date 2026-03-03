@@ -304,15 +304,16 @@ pub async fn generate_image(
             let image_urls = extract_images(&resp, &mc, &resolved_name);
 
             if image_urls.is_empty() {
-                // Debug: log the response structure for troubleshooting
+                // Log response structure for troubleshooting extraction issues
                 let resp_debug = truncate_base64_in_json(&resp);
-                eprintln!("[DEBUG] No images extracted. Response: {}", 
+                eprintln!("[WARN] No images extracted from API response.");
+                eprintln!("[WARN] response_image_path: {:?}, response_format: {:?}", 
+                    mc.response_image_path, mc.response_format);
+                eprintln!("[WARN] Response: {}", 
                     serde_json::to_string_pretty(&resp_debug).unwrap_or_default());
-                eprintln!("[DEBUG] response_image_path: {:?}", mc.response_image_path);
-                eprintln!("[DEBUG] response_format: {:?}", mc.response_format);
                 
                 return Err(AppError::Api(format!(
-                    "No images returned from API response. Check response_image_path configuration. Response keys: {:?}",
+                    "No images returned from API response. Check response_image_path in setting.json. Response keys: {:?}",
                     resp.as_object().map(|o| o.keys().collect::<Vec<_>>()).unwrap_or_default()
                 )));
             }
