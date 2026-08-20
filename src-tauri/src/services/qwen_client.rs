@@ -71,9 +71,10 @@ impl QwenClient {
                 ));
             }
 
-            let result: Value = resp.json().await.map_err(|e| {
-                AppError::Api(format!("Failed to parse API response: {}", e))
-            })?;
+            let result: Value = resp
+                .json()
+                .await
+                .map_err(|e| AppError::Api(format!("Failed to parse API response: {}", e)))?;
 
             return Ok(result);
         }
@@ -153,9 +154,10 @@ impl QwenClient {
                 ));
             }
 
-            let poll_resp: Value = resp.json().await.map_err(|e| {
-                AppError::Api(format!("Failed to parse poll response: {}", e))
-            })?;
+            let poll_resp: Value = resp
+                .json()
+                .await
+                .map_err(|e| AppError::Api(format!("Failed to parse poll response: {}", e)))?;
 
             let task_status = poll_resp
                 .get("output")

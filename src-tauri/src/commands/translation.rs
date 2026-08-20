@@ -78,9 +78,8 @@ pub async fn translate_image(
     )?;
 
     // Save the image as an attachment on the user message
-    let metadata = std::fs::metadata(&image_path).map_err(|e| {
-        AppError::Io(format!("Cannot read image file {}: {}", image_path, e))
-    })?;
+    let metadata = std::fs::metadata(&image_path)
+        .map_err(|e| AppError::Io(format!("Cannot read image file {}: {}", image_path, e)))?;
     let file_size = metadata.len() as i64;
 
     let mime = match std::path::Path::new(&image_path)
@@ -102,14 +101,9 @@ pub async fn translate_image(
         "upload"
     };
 
-    state.db.add_attachment(
-        &user_msg.id,
-        &image_path,
-        0,
-        file_size,
-        mime,
-        source,
-    )?;
+    state
+        .db
+        .add_attachment(&user_msg.id, &image_path, 0, file_size, mime, source)?;
 
     // Build template variables
     let mut vars: HashMap<&str, Value> = HashMap::new();
@@ -171,19 +165,17 @@ pub async fn translate_image(
                     &body,
                     &poll_cfg,
                     &extra_headers,
-                    |task_id, status| {
-                        match status {
-                            "SUBMITTED" => {
-                                let _ = on_event.send(GenerationEvent::Submitted {
-                                    task_id: task_id.to_string(),
-                                });
-                            }
-                            _ => {
-                                let _ = on_event.send(GenerationEvent::Polling {
-                                    task_id: task_id.to_string(),
-                                    status: status.to_string(),
-                                });
-                            }
+                    |task_id, status| match status {
+                        "SUBMITTED" => {
+                            let _ = on_event.send(GenerationEvent::Submitted {
+                                task_id: task_id.to_string(),
+                            });
+                        }
+                        _ => {
+                            let _ = on_event.send(GenerationEvent::Polling {
+                                task_id: task_id.to_string(),
+                                status: status.to_string(),
+                            });
                         }
                     },
                 )
@@ -210,13 +202,10 @@ pub async fn translate_image(
             let image_urls = extract_strings(&final_resp, &response_path);
 
             // Create assistant message and save generation results
-            let assistant_msg = state.db.add_message(
-                &conversation_id,
-                "assistant",
-                None,
-                "translate",
-                None,
-            )?;
+            let assistant_msg =
+                state
+                    .db
+                    .add_message(&conversation_id, "assistant", None, "translate", None)?;
 
             for url in &image_urls {
                 state.db.add_generation_result(
@@ -249,13 +238,10 @@ pub async fn translate_image(
                 ));
             }
 
-            let assistant_msg = state.db.add_message(
-                &conversation_id,
-                "assistant",
-                None,
-                "translate",
-                None,
-            )?;
+            let assistant_msg =
+                state
+                    .db
+                    .add_message(&conversation_id, "assistant", None, "translate", None)?;
 
             for url in &image_urls {
                 state.db.add_generation_result(

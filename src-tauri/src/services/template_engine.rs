@@ -170,6 +170,14 @@ pub fn extract_base64_images(json: &Value, path: &str) -> Vec<String> {
     let mut results = Vec::new();
 
     for val in values {
+        // Handle OpenAI image responses: { "b64_json": "..." }.
+        // OpenAI-compatible gateways commonly omit the MIME type; PNG is the
+        // conventional default for image generation responses.
+        if let Some(data) = val.get("b64_json").and_then(|v| v.as_str()) {
+            results.push(format!("data:image/png;base64,{}", data));
+            continue;
+        }
+
         // Handle direct inlineData object: { "mimeType": "...", "data": "..." }
         if let (Some(mime), Some(data)) = (
             val.get("mimeType").and_then(|v| v.as_str()),

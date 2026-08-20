@@ -52,13 +52,19 @@ pub fn load_config_inner() -> Result<(Configuration, Vec<ModelInfo>), AppError> 
         ))
     })?;
 
-    let config: Configuration = serde_json::from_str(&content).map_err(|e| {
+    let mut config: Configuration = serde_json::from_str(&content).map_err(|e| {
         AppError::Config(format!(
             "Configuration file format error: {}. Please check that {} is valid JSON.",
             e,
             path.display()
         ))
     })?;
+
+    // Resolve environment-variable references in provider API keys. This keeps
+    // secrets out of setting.json while preserving the existing JSON schema.
+    for (provider_name, provider) in &mut config.providers {
+        provider.api_key = resolve_api_key(&provider.api_key, provider_name)?;
+    }
 
     // Validate that at least one provider exists
     if config.providers.is_empty() {
@@ -106,6 +112,37 @@ pub fn load_config_inner() -> Result<(Configuration, Vec<ModelInfo>), AppError> 
     }
 
     Ok((config, model_infos))
+}
+
+/// Resolve an API key written as `${ENV_VAR}` from the process environment.
+///
+/// Plain values remain supported for backward compatibility. Only the exact
+/// `${NAME}` form is expanded, so accidental `$` characters in a key are safe.
+fn resolve_api_key(value: &str, provider_name: &str) -> Result<String, AppError> {
+    let trimmed = value.trim();
+    if !(trimmed.starts_with("${") && trimmed.ends_with('}')) {
+        return Ok(value.to_string());
+    }
+
+    let name = &trimmed[2..trimmed.len() - 1];
+    if name.is_empty()
+        || !name
+            .chars()
+            .enumerate()
+            .all(|(i, c)| c == '_' || c.is_ascii_alphanumeric() && (i > 0 || !c.is_ascii_digit()))
+    {
+        return Err(AppError::Config(format!(
+            "Provider '{}': invalid API key environment variable reference '{}'. Use ${{VARIABLE_NAME}}.",
+            provider_name, value
+        )));
+    }
+
+    std::env::var(name).map_err(|_| {
+        AppError::Config(format!(
+            "Provider '{}': environment variable '{}' is not set; cannot resolve apiKey.",
+            provider_name, name
+        ))
+    })
 }
 
 /// Validate a single model configuration entry.

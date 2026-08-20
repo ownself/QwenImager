@@ -47,8 +47,7 @@ fn resolve_model(
         let (api_key, mc) = config_loader::find_model_config(&config, name)?;
         Ok((api_key.to_string(), name.clone(), mc.clone()))
     } else {
-        let (api_key, name, mc) =
-            config_loader::find_model_by_service_type(&config, target_type)?;
+        let (api_key, name, mc) = config_loader::find_model_by_service_type(&config, target_type)?;
         Ok((api_key.to_string(), name, mc.clone()))
     }
 }
@@ -58,7 +57,9 @@ fn default_response_path(mc: &ModelConfig, model_name: &str) -> String {
     if let Some(ref path) = mc.response_image_path {
         return path.clone();
     }
-    let st = mc.service_type.unwrap_or_else(|| infer_service_type(model_name));
+    let st = mc
+        .service_type
+        .unwrap_or_else(|| infer_service_type(model_name));
     match st {
         ServiceType::Img2img => "output.choices[*].message.content[*].image".to_string(),
         _ => "output.results[*].url".to_string(),
@@ -89,13 +90,13 @@ fn parse_data_uri(data_uri: &str) -> Option<(String, String)> {
     let without_prefix = &data_uri[5..]; // Remove "data:"
     let semicolon_pos = without_prefix.find(';')?;
     let mime = &without_prefix[..semicolon_pos];
-    
+
     let rest = &without_prefix[semicolon_pos + 1..];
     if !rest.starts_with("base64,") {
         return None;
     }
     let base64_data = &rest[7..]; // Remove "base64,"
-    
+
     Some((mime.to_string(), base64_data.to_string()))
 }
 
@@ -110,16 +111,12 @@ fn truncate_base64_in_json(value: &Value) -> Value {
                 Value::String(s.clone())
             }
         }
-        Value::Array(arr) => {
-            Value::Array(arr.iter().map(truncate_base64_in_json).collect())
-        }
-        Value::Object(map) => {
-            Value::Object(
-                map.iter()
-                    .map(|(k, v)| (k.clone(), truncate_base64_in_json(v)))
-                    .collect(),
-            )
-        }
+        Value::Array(arr) => Value::Array(arr.iter().map(truncate_base64_in_json).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), truncate_base64_in_json(v)))
+                .collect(),
+        ),
         other => other.clone(),
     }
 }
@@ -130,10 +127,7 @@ fn truncate_base64_in_json(value: &Value) -> Value {
 /// inferred service_type is text2img or translate (which were historically
 /// async_poll for DashScope), and there's no explicit `service_type` or
 /// `mode` set, upgrade to async_poll with default DashScope config.
-fn resolve_mode_and_poll(
-    mc: &ModelConfig,
-    model_name: &str,
-) -> (ApiMode, Option<AsyncPollConfig>) {
+fn resolve_mode_and_poll(mc: &ModelConfig, model_name: &str) -> (ApiMode, Option<AsyncPollConfig>) {
     match mc.mode {
         ApiMode::AsyncPoll => {
             let poll = mc
@@ -183,13 +177,10 @@ pub async fn generate_image(
     let (api_key, resolved_name, mc) = resolve_model(&model_name, ServiceType::Text2img)?;
 
     // Create user message in DB
-    let _user_msg = state.db.add_message(
-        &conversation_id,
-        "user",
-        Some(&prompt),
-        "text2img",
-        None,
-    )?;
+    let _user_msg =
+        state
+            .db
+            .add_message(&conversation_id, "user", Some(&prompt), "text2img", None)?;
 
     // Build template variables
     let gen_params = params.unwrap_or_default();
@@ -231,19 +222,17 @@ pub async fn generate_image(
                     &body,
                     &poll_cfg,
                     &extra_headers,
-                    |task_id, status| {
-                        match status {
-                            "SUBMITTED" => {
-                                let _ = on_event.send(GenerationEvent::Submitted {
-                                    task_id: task_id.to_string(),
-                                });
-                            }
-                            _ => {
-                                let _ = on_event.send(GenerationEvent::Polling {
-                                    task_id: task_id.to_string(),
-                                    status: status.to_string(),
-                                });
-                            }
+                    |task_id, status| match status {
+                        "SUBMITTED" => {
+                            let _ = on_event.send(GenerationEvent::Submitted {
+                                task_id: task_id.to_string(),
+                            });
+                        }
+                        _ => {
+                            let _ = on_event.send(GenerationEvent::Polling {
+                                task_id: task_id.to_string(),
+                                status: status.to_string(),
+                            });
                         }
                     },
                 )
@@ -270,13 +259,10 @@ pub async fn generate_image(
             let image_urls = extract_images(&final_resp, &mc, &resolved_name);
 
             // Create assistant message and save generation results
-            let assistant_msg = state.db.add_message(
-                &conversation_id,
-                "assistant",
-                None,
-                "text2img",
-                None,
-            )?;
+            let assistant_msg =
+                state
+                    .db
+                    .add_message(&conversation_id, "assistant", None, "text2img", None)?;
 
             for url in &image_urls {
                 state.db.add_generation_result(
@@ -307,24 +293,25 @@ pub async fn generate_image(
                 // Log response structure for troubleshooting extraction issues
                 let resp_debug = truncate_base64_in_json(&resp);
                 eprintln!("[WARN] No images extracted from API response.");
-                eprintln!("[WARN] response_image_path: {:?}, response_format: {:?}", 
-                    mc.response_image_path, mc.response_format);
-                eprintln!("[WARN] Response: {}", 
-                    serde_json::to_string_pretty(&resp_debug).unwrap_or_default());
-                
+                eprintln!(
+                    "[WARN] response_image_path: {:?}, response_format: {:?}",
+                    mc.response_image_path, mc.response_format
+                );
+                eprintln!(
+                    "[WARN] Response: {}",
+                    serde_json::to_string_pretty(&resp_debug).unwrap_or_default()
+                );
+
                 return Err(AppError::Api(format!(
                     "No images returned from API response. Check response_image_path in setting.json. Response keys: {:?}",
                     resp.as_object().map(|o| o.keys().collect::<Vec<_>>()).unwrap_or_default()
                 )));
             }
 
-            let assistant_msg = state.db.add_message(
-                &conversation_id,
-                "assistant",
-                None,
-                "text2img",
-                None,
-            )?;
+            let assistant_msg =
+                state
+                    .db
+                    .add_message(&conversation_id, "assistant", None, "text2img", None)?;
 
             for url in &image_urls {
                 state.db.add_generation_result(
@@ -443,25 +430,19 @@ pub async fn edit_image(
         ));
     }
     if prompt.trim().is_empty() {
-        return Err(AppError::Validation(
-            "Prompt text is required".to_string(),
-        ));
+        return Err(AppError::Validation("Prompt text is required".to_string()));
     }
 
     // Create user message in DB
-    let user_msg = state.db.add_message(
-        &conversation_id,
-        "user",
-        Some(&prompt),
-        "img2img",
-        None,
-    )?;
+    let user_msg =
+        state
+            .db
+            .add_message(&conversation_id, "user", Some(&prompt), "img2img", None)?;
 
     // Save attachments for the user message
     for (i, path) in image_paths.iter().enumerate() {
-        let metadata = std::fs::metadata(path).map_err(|e| {
-            AppError::Io(format!("Cannot read image file {}: {}", path, e))
-        })?;
+        let metadata = std::fs::metadata(path)
+            .map_err(|e| AppError::Io(format!("Cannot read image file {}: {}", path, e)))?;
         let file_size = metadata.len() as i64;
 
         let mime = match std::path::Path::new(path)
@@ -483,14 +464,9 @@ pub async fn edit_image(
             "upload"
         };
 
-        state.db.add_attachment(
-            &user_msg.id,
-            path,
-            i as i32,
-            file_size,
-            mime,
-            source,
-        )?;
+        state
+            .db
+            .add_attachment(&user_msg.id, path, i as i32, file_size, mime, source)?;
     }
 
     // Build content arrays in different formats for various API providers
@@ -590,7 +566,7 @@ pub async fn edit_image(
 
     // Extract images based on response format
     let mut image_urls = extract_images(&resp, &mc, &resolved_name);
-    
+
     // Fallback for img2img: try results format if choices format returned empty
     if image_urls.is_empty() && mc.response_format == ResponseFormat::Url {
         let response_path = default_response_path(&mc, &resolved_name);
@@ -606,13 +582,10 @@ pub async fn edit_image(
     }
 
     // Create assistant message and save generation results
-    let assistant_msg = state.db.add_message(
-        &conversation_id,
-        "assistant",
-        None,
-        "img2img",
-        None,
-    )?;
+    let assistant_msg =
+        state
+            .db
+            .add_message(&conversation_id, "assistant", None, "img2img", None)?;
 
     for url in &image_urls {
         state.db.add_generation_result(

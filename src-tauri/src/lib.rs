@@ -33,8 +33,7 @@ pub fn run() {
                 .expect("Failed to resolve app data directory");
 
             let db_path = db::resolve_db_path(&app_data_dir);
-            let database =
-                Database::new(&db_path).expect("Failed to initialize database");
+            let database = Database::new(&db_path).expect("Failed to initialize database");
             let qwen_client = QwenClient::new();
 
             app.manage(Arc::new(AppState {
